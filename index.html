@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en-US" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Line Grid — synced lyric player</title>
+  <meta name="description" content="A minimal synced lyric player: play a track, follow the highlighted line, tap any line to jump there.">
+  <link rel="stylesheet" href="./styles.css">
+  <script src="./i18n.js" defer></script>
+  <script src="./app.js" defer></script>
+  <script src="./theme.js" defer></script>
+  <script src="./online.js" defer></script>
+</head>
+<body>
+  <div class="app">
+    <main class="shell">
+      <div class="topline">
+        <div class="mark">
+          <b aria-hidden="true"></b>
+          <span data-i18n="app.name">Line Grid</span>
+        </div>
+        <div class="topline-right">
+          <button type="button" id="themeToggle" class="theme-toggle" aria-label="Toggle theme" title="Toggle light / dark theme">
+            <span class="theme-icon theme-icon-sun" aria-hidden="true">☀</span>
+            <span class="theme-icon theme-icon-moon" aria-hidden="true">☾</span>
+            <span class="theme-knob" aria-hidden="true"></span>
+          </button>
+          <div class="state" id="playState" role="status" aria-live="off">Ready · 0:00</div>
+        </div>
+      </div>
+
+      <section class="grid">
+        <article class="primary-stage" id="stage" aria-labelledby="trackTitle">
+          <div class="cover-wrap">
+            <img class="cover" id="cover" src="./assets/covers/cover-1.webp" alt="Cover art for Paper Sun" width="600" height="600">
+          </div>
+
+          <div class="meta-grid">
+            <div>
+              <h1 class="track-title" id="trackTitle">Paper Sun</h1>
+              <p class="artist" id="artist">Mina Vale</p>
+            </div>
+            <div class="mode-stack">
+              <span id="shuffleText">In order</span>
+              <span id="repeatText">Repeat off</span>
+            </div>
+          </div>
+
+          <div class="meter">
+            <span id="elapsed">0:00</span>
+            <label class="visually-hidden" for="progress" data-i18n="progress.label">Seek through the track</label>
+            <input id="progress" type="range" min="0" max="76.8" step="0.01" value="0" style="--fill: 0%;">
+            <span id="remaining">-1:16</span>
+          </div>
+
+          <div class="controls">
+            <button id="shuffle" type="button" data-i18n-aria-label="controls.shuffle" aria-label="Toggle shuffle" data-i18n-title="controls.shuffle" title="Toggle shuffle" aria-pressed="false">
+              <span aria-hidden="true">⇄</span>
+            </button>
+            <button id="prev" type="button" data-i18n-aria-label="controls.prev" aria-label="Previous track" data-i18n-title="controls.prev" title="Previous track">
+              <span aria-hidden="true">‹</span>
+            </button>
+            <button id="play" class="play" type="button" data-i18n-aria-label="controls.play" aria-label="Play" data-i18n-title="controls.play" title="Play">
+              <span id="playGlyph" aria-hidden="true">▶</span>
+            </button>
+            <button id="next" type="button" data-i18n-aria-label="controls.next" aria-label="Next track" data-i18n-title="controls.next" title="Next track">
+              <span aria-hidden="true">›</span>
+            </button>
+            <button id="repeat" type="button" data-i18n-aria-label="controls.repeat" aria-label="Cycle repeat mode" data-i18n-title="controls.repeat" title="Cycle repeat mode">
+              <span aria-hidden="true">↻</span>
+            </button>
+          </div>
+
+          <div class="utility">
+            <span class="volume-label" data-i18n="volume.label">Volume</span>
+            <label class="visually-hidden" for="volume" data-i18n="volume.label">Volume</label>
+            <input id="volume" type="range" min="0" max="1" step="0.01" value="0.55">
+          </div>
+
+          <p class="hint" data-i18n="hint.keys">Space plays and pauses · ← → seek · ↑ ↓ change track</p>
+          <p class="alert" id="audioAlert" role="alert" hidden></p>
+        </article>
+
+        <div class="module-grid">
+          <section class="panel lyrics-panel" aria-labelledby="lyricsHeading">
+            <div class="panel-head">
+              <h2 id="lyricsHeading" data-i18n="lyrics.title">Lyrics</h2>
+              <span id="lineTime">0:00</span>
+            </div>
+            <div class="lyrics" id="lyrics"></div>
+          </section>
+
+          <section class="panel queue-panel" aria-labelledby="queueHeading">
+            <div class="panel-head">
+              <h2 id="queueHeading" data-i18n="queue.title">Tracks</h2>
+              <span id="queueCount">6 cuts</span>
+            </div>
+            <form class="search-bar" id="searchForm" autocomplete="off">
+              <input type="search" id="searchInput" placeholder="Search YouTube…" aria-label="Search songs on YouTube" />
+              <button type="submit" id="searchBtn" title="Search">⌕</button>
+            </form>
+            <div class="search-status" id="searchStatus" hidden></div>
+            <div class="queue-list" id="queue"></div>
+          </section>
+        </div>
+      </section>
+
+      <p class="colophon" data-i18n="colophon.note">Demo tracks are synthesised in-browser. Search uses a local server + YouTube (personal use).</p>
+    </main>
+  </div>
+</body>
+</html>
