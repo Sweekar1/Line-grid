@@ -51,6 +51,7 @@ YDL_STREAM_OPTS = {
     "format": "bestaudio[ext=m4a]/bestaudio/best",
     "noplaylist": True,
     "socket_timeout": 30,
+    "skip_unavailable_fragments": True,
     "extractor_args": {
         "youtube": {
             "player_client": ["android", "web", "ios"],
