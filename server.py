@@ -281,7 +281,10 @@ app.mount("/", StaticFiles(directory=".", html=True), name="static")
 
 
 if __name__ == "__main__":
+    import os
     import uvicorn
 
-    print("\n  Line Grid server → http://127.0.0.1:8765/\n")
-    uvicorn.run(app, host="127.0.0.1", port=8765, log_level="info")
+    port = int(os.environ.get("PORT", "8765"))
+    host = os.environ.get("HOST", "0.0.0.0")
+    print(f"\n  Line Grid server → http://{host}:{port}/\n")
+    uvicorn.run(app, host=host, port=port, log_level="info")
