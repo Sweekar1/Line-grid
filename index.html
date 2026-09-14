@@ -10,6 +10,38 @@
   <script src="./app.js" defer></script>
   <script src="./theme.js" defer></script>
   <script src="./online.js" defer></script>
+  <script>
+    // Tailwind + custom modal styles (added directly in index.html)
+    const style = document.createElement('style');
+    style.textContent = `
+      .modal {
+        position: fixed; top:0; left:0; width:100%; height:100%;
+        background:rgba(0,0,0,0.85); display:none; align-items:center; justify-content:center; z-index:9999;
+      }
+      .modal-content {
+        background:#222; padding:24px; border-radius:12px; width:420px; max-width:90%;
+      }
+      .cancel-btn, .add-btn {
+        padding:10px 20px; border:none; border-radius:6px; cursor:pointer; font-weight:bold;
+      }
+      .cancel-btn { background:#555; color:white; flex:1; }
+      .add-btn { background:#00ff9d; color:#000; flex:1; }
+      .import-btn {
+        margin-top: 12px;
+        padding: 10px 16px;
+        background: #4a4a4a;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        font-size: 14px;
+        cursor: pointer;
+        transition: all 0.2s;
+        width: 100%;
+      }
+      .import-btn:hover { background: #5a5a5a; }
+    `;
+    document.head.appendChild(style);
+  </script>
 </head>
 <body>
   <div class="app">
@@ -28,13 +60,11 @@
           <div class="state" id="playState" role="status" aria-live="off">Ready · 0:00</div>
         </div>
       </div>
-
       <section class="grid">
         <article class="primary-stage" id="stage" aria-labelledby="trackTitle">
           <div class="cover-wrap">
             <img class="cover" id="cover" src="./assets/covers/cover-1.webp" alt="Cover art for Paper Sun" width="600" height="600">
           </div>
-
           <div class="meta-grid">
             <div>
               <h1 class="track-title" id="trackTitle">Paper Sun</h1>
@@ -45,14 +75,12 @@
               <span id="repeatText">Repeat off</span>
             </div>
           </div>
-
           <div class="meter">
             <span id="elapsed">0:00</span>
             <label class="visually-hidden" for="progress" data-i18n="progress.label">Seek through the track</label>
             <input id="progress" type="range" min="0" max="76.8" step="0.01" value="0" style="--fill: 0%;">
             <span id="remaining">-1:16</span>
           </div>
-
           <div class="controls">
             <button id="shuffle" type="button" data-i18n-aria-label="controls.shuffle" aria-label="Toggle shuffle" data-i18n-title="controls.shuffle" title="Toggle shuffle" aria-pressed="false">
               <span aria-hidden="true">⇄</span>
@@ -70,17 +98,14 @@
               <span aria-hidden="true">↻</span>
             </button>
           </div>
-
           <div class="utility">
             <span class="volume-label" data-i18n="volume.label">Volume</span>
             <label class="visually-hidden" for="volume" data-i18n="volume.label">Volume</label>
             <input id="volume" type="range" min="0" max="1" step="0.01" value="0.55">
           </div>
-
           <p class="hint" data-i18n="hint.keys">Space plays and pauses · ← → seek · ↑ ↓ change track</p>
           <p class="alert" id="audioAlert" role="alert" hidden></p>
         </article>
-
         <div class="module-grid">
           <section class="panel lyrics-panel" aria-labelledby="lyricsHeading">
             <div class="panel-head">
@@ -89,7 +114,6 @@
             </div>
             <div class="lyrics" id="lyrics"></div>
           </section>
-
           <section class="panel queue-panel" aria-labelledby="queueHeading">
             <div class="panel-head">
               <h2 id="queueHeading" data-i18n="queue.title">Tracks</h2>
@@ -100,13 +124,28 @@
               <button type="submit" id="searchBtn" title="Search">⌕</button>
             </form>
             <div class="search-status" id="searchStatus" hidden></div>
+            <button id="importBtn" class="import-btn">📥 Import Playlist</button>
             <div class="queue-list" id="queue"></div>
           </section>
         </div>
       </section>
-
       <p class="colophon" data-i18n="colophon.note">Demo tracks are synthesised in-browser. Search uses a local server + YouTube (personal use).</p>
     </main>
   </div>
+
+  <!-- IMPORT POPUP (added directly in index.html) -->
+  <div id="importModal" class="modal">
+    <div class="modal-content">
+      <h3>Import Playlist</h3>
+      <p style="font-size:14px;color:#aaa;margin-bottom:12px">Paste Spotify or YouTube playlist link below</p>
+      <input id="playlistUrl" type="text" placeholder="https://open.spotify.com/playlist/..." style="width:100%;padding:12px;margin-bottom:12px;border-radius:6px;border:1px solid #555">
+      <input id="playlistUrlYt" type="text" placeholder="https://youtube.com/playlist?list=..." style="width:100%;padding:12px;margin-bottom:20px;border-radius:6px;border:1px solid #555">
+      <div style="display:flex;gap:12px">
+        <button id="cancelImport" class="cancel-btn">Cancel</button>
+        <button id="addPlaylist" class="add-btn">Add to Tracks</button>
+      </div>
+    </div>
+  </div>
+
 </body>
 </html>
