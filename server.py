@@ -39,6 +39,10 @@ YDL_SEARCH_OPTS = {
     "extract_flat": True,
     "default_search": "ytsearch",
     "noplaylist": True,
+    "socket_timeout": 30,
+    "http_headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+    },
 }
 
 YDL_STREAM_OPTS = {
@@ -46,7 +50,16 @@ YDL_STREAM_OPTS = {
     "no_warnings": True,
     "format": "bestaudio[ext=m4a]/bestaudio/best",
     "noplaylist": True,
-    "extractor_args": {"youtube": {"player_client": ["android", "web", "ios"]}},
+    "socket_timeout": 30,
+    "extractor_args": {
+        "youtube": {
+            "player_client": ["android", "web", "ios"],
+            "player_skip_js_execution": False,
+        }
+    },
+    "http_headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+    },
 }
 
 
