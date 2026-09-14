@@ -33,6 +33,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Get YouTube API key from environment
+YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY", "")
+
 YDL_SEARCH_OPTS = {
     "quiet": True,
     "no_warnings": True,
@@ -45,9 +48,27 @@ YDL_SEARCH_OPTS = {
     },
 }
 
-# Try multiple extraction methods with different player clients
-YDL_STREAM_OPTS_VARIANTS = [
-    {
+# Use API key if available for better extraction
+if YOUTUBE_API_KEY:
+    YDL_STREAM_OPTS = {
+        "quiet": True,
+        "no_warnings": True,
+        "format": "bestaudio[ext=m4a]/bestaudio/best",
+        "noplaylist": True,
+        "socket_timeout": 30,
+        "youtube_include_dash_manifest": False,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["ios", "android", "web"],
+                "player_skip_js_execution": False,
+            }
+        },
+        "http_headers": {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+        },
+    }
+else:
+    YDL_STREAM_OPTS = {
         "quiet": True,
         "no_warnings": True,
         "format": "bestaudio[ext=m4a]/bestaudio/best",
@@ -55,54 +76,14 @@ YDL_STREAM_OPTS_VARIANTS = [
         "socket_timeout": 30,
         "extractor_args": {
             "youtube": {
-                "player_client": ["ios"],
+                "player_client": ["ios", "android", "web"],
+                "player_skip_js_execution": False,
             }
         },
         "http_headers": {
-            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
         },
-    },
-    {
-        "quiet": True,
-        "no_warnings": True,
-        "format": "bestaudio[ext=m4a]/bestaudio/best",
-        "noplaylist": True,
-        "socket_timeout": 30,
-        "extractor_args": {
-            "youtube": {
-                "player_client": ["android"],
-            }
-        },
-        "http_headers": {
-            "User-Agent": "Mozilla/5.0 (Linux; Android 11; SM-G991B) AppleWebKit/537.36",
-        },
-    },
-    {
-        "quiet": True,
-        "no_warnings": True,
-        "format": "bestaudio[ext=m4a]/bestaudio/best",
-        "noplaylist": True,
-        "socket_timeout": 30,
-        "extractor_args": {
-            "youtube": {
-                "player_client": ["web"],
-            }
-        },
-        "http_headers": {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        },
-    },
-    {
-        "quiet": True,
-        "no_warnings": True,
-        "format": "bestaudio[ext=m4a]/bestaudio/best",
-        "noplaylist": True,
-        "socket_timeout": 30,
-        "http_headers": {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        },
-    },
-]
+    }
 
 
 def _run_ydl(opts: dict, url: str) -> dict:
@@ -110,30 +91,33 @@ def _run_ydl(opts: dict, url: str) -> dict:
         return ydl.extract_info(url, download=False)
 
 
-async def _extract_with_fallback(url: str) -> dict:
-    """Try multiple extraction methods."""
+async def _extract_stream_with_retries(url: str, max_retries: int = 3) -> dict:
+    """Try to extract stream with multiple retries and different approaches."""
     last_error = None
     
-    for i, opts in enumerate(YDL_STREAM_OPTS_VARIANTS):
+    for attempt in range(max_retries):
         try:
-            print(f"Trying extraction method {i+1}/{len(YDL_STREAM_OPTS_VARIANTS)}")
+            print(f"Extraction attempt {attempt + 1}/{max_retries}")
             info = await asyncio.wait_for(
-                asyncio.to_thread(_run_ydl, opts, url),
+                asyncio.to_thread(_run_ydl, YDL_STREAM_OPTS, url),
                 timeout=25.0
             )
-            print(f"✓ Success with method {i+1}")
+            print(f"✓ Success on attempt {attempt + 1}")
             return info
         except asyncio.TimeoutError:
             last_error = "Timeout"
-            print(f"✗ Method {i+1} timed out")
+            print(f"✗ Attempt {attempt + 1} timed out")
+            if attempt < max_retries - 1:
+                await asyncio.sleep(1)  # Wait before retry
             continue
         except Exception as e:
             last_error = str(e)
-            print(f"✗ Method {i+1} failed: {e}")
+            print(f"✗ Attempt {attempt + 1} failed: {e}")
+            if attempt < max_retries - 1:
+                await asyncio.sleep(1)  # Wait before retry
             continue
     
-    # All methods failed
-    raise Exception(f"All extraction methods failed. Last error: {last_error}")
+    raise Exception(f"Failed after {max_retries} attempts. Last error: {last_error}")
 
 
 @app.get("/api/search")
@@ -189,12 +173,13 @@ async def stream_info(video_id: str):
 
     url = f"https://www.youtube.com/watch?v={video_id}"
     try:
-        info = await _extract_with_fallback(url)
+        info = await _extract_stream_with_retries(url)
     except Exception as e:
         raise HTTPException(502, f"Could not extract stream: {e}") from e
 
     stream_url = info.get("url")
     if not stream_url:
+        # pick first audio-only format
         for f in info.get("formats") or []:
             if f.get("url") and f.get("acodec") not in (None, "none") and f.get("vcodec") in (None, "none"):
                 stream_url = f["url"]
@@ -226,7 +211,7 @@ async def proxy_audio(video_id: str, request: Request):
     url = f"https://www.youtube.com/watch?v={video_id}"
     
     try:
-        info = await _extract_with_fallback(url)
+        info = await _extract_stream_with_retries(url)
     except Exception as e:
         print(f"Extraction error for {video_id}: {e}")
         raise HTTPException(502, f"Could not extract stream") from e
@@ -305,11 +290,13 @@ async def lyrics(
     headers = {"User-Agent": "LineGrid/1.0 (personal player)"}
 
     async with httpx.AsyncClient(timeout=8.0) as client:
+        # Exact match first
         r = await client.get("https://lrclib.net/api/get", params=params, headers=headers)
         data = None
         if r.status_code == 200:
             data = r.json()
         else:
+            # Fallback search
             r2 = await client.get(
                 "https://lrclib.net/api/search",
                 params={"q": f"{artist} {title}".strip()},
@@ -318,6 +305,7 @@ async def lyrics(
             if r2.status_code == 200:
                 candidates = r2.json() or []
                 if candidates:
+                    # pick closest duration if available
                     best = candidates[0]
                     if duration:
                         best = min(
@@ -356,6 +344,7 @@ async def lyrics(
     }
 
 
+# Serve static files
 @app.get("/")
 async def serve_index():
     """Serve index.html from the application root."""
@@ -406,5 +395,10 @@ if __name__ == "__main__":
 
     port = int(os.environ.get("PORT", "8765"))
     host = os.environ.get("HOST", "0.0.0.0")
-    print(f"\n  Line Grid server → http://{host}:{port}/\n")
+    print(f"\n  Line Grid server → http://{host}:{port}/")
+    if YOUTUBE_API_KEY:
+        print(f"  ✓ YouTube API Key configured")
+    else:
+        print(f"  ⚠ No YouTube API Key - using fallback extraction")
+    print()
     uvicorn.run(app, host=host, port=port, log_level="info")
