@@ -45,28 +45,95 @@ YDL_SEARCH_OPTS = {
     },
 }
 
-YDL_STREAM_OPTS = {
-    "quiet": True,
-    "no_warnings": True,
-    "format": "bestaudio[ext=m4a]/bestaudio/best",
-    "noplaylist": True,
-    "socket_timeout": 30,
-    "skip_unavailable_fragments": True,
-    "extractor_args": {
-        "youtube": {
-            "player_client": ["android", "web", "ios"],
-            "player_skip_js_execution": False,
-        }
+# Try multiple extraction methods with different player clients
+YDL_STREAM_OPTS_VARIANTS = [
+    {
+        "quiet": True,
+        "no_warnings": True,
+        "format": "bestaudio[ext=m4a]/bestaudio/best",
+        "noplaylist": True,
+        "socket_timeout": 30,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["ios"],
+            }
+        },
+        "http_headers": {
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15",
+        },
     },
-    "http_headers": {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+    {
+        "quiet": True,
+        "no_warnings": True,
+        "format": "bestaudio[ext=m4a]/bestaudio/best",
+        "noplaylist": True,
+        "socket_timeout": 30,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android"],
+            }
+        },
+        "http_headers": {
+            "User-Agent": "Mozilla/5.0 (Linux; Android 11; SM-G991B) AppleWebKit/537.36",
+        },
     },
-}
+    {
+        "quiet": True,
+        "no_warnings": True,
+        "format": "bestaudio[ext=m4a]/bestaudio/best",
+        "noplaylist": True,
+        "socket_timeout": 30,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["web"],
+            }
+        },
+        "http_headers": {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        },
+    },
+    {
+        "quiet": True,
+        "no_warnings": True,
+        "format": "bestaudio[ext=m4a]/bestaudio/best",
+        "noplaylist": True,
+        "socket_timeout": 30,
+        "http_headers": {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        },
+    },
+]
 
 
 def _run_ydl(opts: dict, url: str) -> dict:
     with yt_dlp.YoutubeDL(opts) as ydl:
         return ydl.extract_info(url, download=False)
+
+
+async def _extract_with_fallback(url: str) -> dict:
+    """Try multiple extraction methods."""
+    last_error = None
+    
+    for i, opts in enumerate(YDL_STREAM_OPTS_VARIANTS):
+        try:
+            print(f"Trying extraction method {i+1}/{len(YDL_STREAM_OPTS_VARIANTS)}")
+            info = await asyncio.wait_for(
+                asyncio.to_thread(_run_ydl, opts, url),
+                timeout=25.0
+            )
+            print(f"✓ Success with method {i+1}")
+            return info
+        except asyncio.TimeoutError:
+            last_error = "Timeout"
+            print(f"✗ Method {i+1} timed out")
+            continue
+        except Exception as e:
+            last_error = str(e)
+            print(f"✗ Method {i+1} failed: {e}")
+            continue
+    
+    # All methods failed
+    raise Exception(f"All extraction methods failed. Last error: {last_error}")
 
 
 @app.get("/api/search")
@@ -76,7 +143,6 @@ async def search(q: str = Query(..., min_length=1), limit: int = Query(8, ge=1, 
     if not query:
         raise HTTPException(400, "Empty query")
 
-    # Prefer official audio / lyric results when possible
     search_q = f"ytsearch{limit}:{query}"
 
     try:
@@ -123,13 +189,12 @@ async def stream_info(video_id: str):
 
     url = f"https://www.youtube.com/watch?v={video_id}"
     try:
-        info = await asyncio.to_thread(_run_ydl, YDL_STREAM_OPTS, url)
+        info = await _extract_with_fallback(url)
     except Exception as e:
         raise HTTPException(502, f"Could not extract stream: {e}") from e
 
     stream_url = info.get("url")
     if not stream_url:
-        # pick first audio-only format
         for f in info.get("formats") or []:
             if f.get("url") and f.get("acodec") not in (None, "none") and f.get("vcodec") in (None, "none"):
                 stream_url = f["url"]
@@ -161,17 +226,7 @@ async def proxy_audio(video_id: str, request: Request):
     url = f"https://www.youtube.com/watch?v={video_id}"
     
     try:
-        # Use a timeout for the extraction
-        try:
-            info = await asyncio.wait_for(
-                asyncio.to_thread(_run_ydl, YDL_STREAM_OPTS, url),
-                timeout=30.0
-            )
-        except asyncio.TimeoutError:
-            raise HTTPException(504, "YouTube extraction timeout - video may be unavailable")
-            
-    except HTTPException:
-        raise
+        info = await _extract_with_fallback(url)
     except Exception as e:
         print(f"Extraction error for {video_id}: {e}")
         raise HTTPException(502, f"Could not extract stream") from e
@@ -187,7 +242,7 @@ async def proxy_audio(video_id: str, request: Request):
 
     # Forward Range header for seeking
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15",
         "Accept": "*/*",
     }
     range_header = request.headers.get("range")
@@ -250,13 +305,11 @@ async def lyrics(
     headers = {"User-Agent": "LineGrid/1.0 (personal player)"}
 
     async with httpx.AsyncClient(timeout=8.0) as client:
-        # Exact match first
         r = await client.get("https://lrclib.net/api/get", params=params, headers=headers)
         data = None
         if r.status_code == 200:
             data = r.json()
         else:
-            # Fallback search
             r2 = await client.get(
                 "https://lrclib.net/api/search",
                 params={"q": f"{artist} {title}".strip()},
@@ -265,7 +318,6 @@ async def lyrics(
             if r2.status_code == 200:
                 candidates = r2.json() or []
                 if candidates:
-                    # pick closest duration if available
                     best = candidates[0]
                     if duration:
                         best = min(
@@ -304,7 +356,6 @@ async def lyrics(
     }
 
 
-# Serve static files WITHOUT using StaticFiles
 @app.get("/")
 async def serve_index():
     """Serve index.html from the application root."""
@@ -319,24 +370,20 @@ async def serve_index():
 @app.get("/{file_path:path}")
 async def serve_static(file_path: str):
     """Serve any other static files (CSS, JS, images, etc.)."""
-    # Security: prevent directory traversal
     if ".." in file_path:
         raise HTTPException(400, "Invalid path")
     
     file = Path(file_path)
     
-    # Try from /app first (Railway container), then current directory
     for base_path in [Path("/app"), Path(".")]:
         full_path = (base_path / file).resolve()
         
-        # Ensure the resolved path is within the base directory
         try:
             full_path.relative_to(base_path.resolve())
         except ValueError:
-            continue  # Path escapes the base directory
+            continue
         
         if full_path.is_file():
-            # Determine media type
             media_type = "application/octet-stream"
             if file_path.endswith(".css"):
                 media_type = "text/css"
