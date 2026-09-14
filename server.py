@@ -11,7 +11,9 @@ Personal use only. Extracting YouTube streams may violate YouTube ToS.
 from __future__ import annotations
 
 import asyncio
+import os
 import re
+from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import quote
 
@@ -276,16 +278,35 @@ async def lyrics(
     }
 
 
-# Serve the frontend
+# Health check endpoint
+@app.get("/")
+async def health_check():
+    """Health check endpoint that returns a simple response."""
+    index_file = Path("index.html")
+    if index_file.exists():
+        return FileResponse(index_file, media_type="text/html")
+    else:
+        return {
+            "status": "ok",
+            "message": "Line Grid API is running",
+            "info": "Visit /api/search?q=your_query to search YouTube"
+        }
 
-app.mount("/", StaticFiles(directory=".", html=True, check_dir=False), name="static")
+
+# Serve static files AFTER defining the routes above
+# This ensures that explicit routes take priority
+app.mount("/", StaticFiles(directory=".", html=True), name="static")
 
 
 if __name__ == "__main__":
-    import os
-    import uvicorn
-
     port = int(os.environ.get("PORT", "8765"))
-    host = os.environ.get("HOST", "0.0.0.0")
-    print(f"\n  Line Grid server → http://{host}:{port}/\n")
+    host = "0.0.0.0"
+    
+    print(f"\n{'='*60}")
+    print(f"  Line Grid API Server")
+    print(f"  Running on http://{host}:{port}/")
+    print(f"  Press CTRL+C to quit")
+    print(f"{'='*60}\n")
+    
+    import uvicorn
     uvicorn.run(app, host=host, port=port, log_level="info")
