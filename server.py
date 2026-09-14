@@ -22,7 +22,6 @@ import yt_dlp
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
 app = FastAPI(title="Line Grid API")
@@ -278,35 +277,62 @@ async def lyrics(
     }
 
 
-# Health check endpoint
+# FIXED: Serve static files WITHOUT using StaticFiles
+# This approach works better on Railway
+
 @app.get("/")
-async def health_check():
-    """Health check endpoint that returns a simple response."""
-    index_file = Path("index.html")
-    if index_file.exists():
-        return FileResponse(index_file, media_type="text/html")
-    else:
-        return {
-            "status": "ok",
-            "message": "Line Grid API is running",
-            "info": "Visit /api/search?q=your_query to search YouTube"
-        }
+async def serve_index():
+    """Serve index.html from the application root."""
+    index_path = Path("/app/index.html")
+    if not index_path.exists():
+        index_path = Path("./index.html")
+    if index_path.exists():
+        return FileResponse(index_path, media_type="text/html")
+    return {"error": "index.html not found"}
 
 
-# Serve static files AFTER defining the routes above
-# This ensures that explicit routes take priority
-app.mount("/", StaticFiles(directory=".", html=True), name="static")
+@app.get("/{file_path:path}")
+async def serve_static(file_path: str):
+    """Serve any other static files (CSS, JS, images, etc.)."""
+    # Security: prevent directory traversal
+    if ".." in file_path:
+        raise HTTPException(400, "Invalid path")
+    
+    file = Path(file_path)
+    
+    # Try from /app first (Railway container), then current directory
+    for base_path in [Path("/app"), Path(".")]:
+        full_path = (base_path / file).resolve()
+        
+        # Ensure the resolved path is within the base directory
+        try:
+            full_path.relative_to(base_path.resolve())
+        except ValueError:
+            continue  # Path escapes the base directory
+        
+        if full_path.is_file():
+            # Determine media type
+            media_type = "application/octet-stream"
+            if file_path.endswith(".css"):
+                media_type = "text/css"
+            elif file_path.endswith(".js"):
+                media_type = "application/javascript"
+            elif file_path.endswith(".html"):
+                media_type = "text/html"
+            elif file_path.endswith(".json"):
+                media_type = "application/json"
+            elif file_path.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
+                media_type = "image/" + file_path.split(".")[-1]
+            
+            return FileResponse(full_path, media_type=media_type)
+    
+    raise HTTPException(404, f"File not found: {file_path}")
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", "8765"))
-    host = "0.0.0.0"
-    
-    print(f"\n{'='*60}")
-    print(f"  Line Grid API Server")
-    print(f"  Running on http://{host}:{port}/")
-    print(f"  Press CTRL+C to quit")
-    print(f"{'='*60}\n")
-    
     import uvicorn
+
+    port = int(os.environ.get("PORT", "8765"))
+    host = os.environ.get("HOST", "0.0.0.0")
+    print(f"\n  Line Grid server → http://{host}:{port}/\n")
     uvicorn.run(app, host=host, port=port, log_level="info")
