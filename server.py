@@ -158,10 +158,22 @@ async def proxy_audio(video_id: str, request: Request):
         raise HTTPException(400, "Invalid video id")
 
     url = f"https://www.youtube.com/watch?v={video_id}"
+    
     try:
-        info = await asyncio.to_thread(_run_ydl, YDL_STREAM_OPTS, url)
+        # Use a timeout for the extraction
+        try:
+            info = await asyncio.wait_for(
+                asyncio.to_thread(_run_ydl, YDL_STREAM_OPTS, url),
+                timeout=30.0
+            )
+        except asyncio.TimeoutError:
+            raise HTTPException(504, "YouTube extraction timeout - video may be unavailable")
+            
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(502, f"Could not extract stream: {e}") from e
+        print(f"Extraction error for {video_id}: {e}")
+        raise HTTPException(502, f"Could not extract stream") from e
 
     stream_url = info.get("url")
     if not stream_url:
@@ -189,7 +201,8 @@ async def proxy_audio(video_id: str, request: Request):
         )
     except Exception as e:
         await client.aclose()
-        raise HTTPException(502, f"Upstream error: {e}") from e
+        print(f"Upstream error for {video_id}: {e}")
+        raise HTTPException(502, f"Upstream error") from e
 
     if upstream.status_code not in (200, 206):
         await upstream.aclose()
@@ -290,9 +303,7 @@ async def lyrics(
     }
 
 
-# FIXED: Serve static files WITHOUT using StaticFiles
-# This approach works better on Railway
-
+# Serve static files WITHOUT using StaticFiles
 @app.get("/")
 async def serve_index():
     """Serve index.html from the application root."""
