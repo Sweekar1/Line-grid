@@ -277,7 +277,8 @@ async def lyrics(
 
 
 # Serve the frontend
-app.mount("/", StaticFiles(directory=".", html=True), name="static")
+
+app.mount("/", StaticFiles(directory=".", html=True, check_dir=False), name="static")
 
 
 if __name__ == "__main__":
