@@ -48,42 +48,34 @@ YDL_SEARCH_OPTS = {
     },
 }
 
-# Use API key if available for better extraction
-if YOUTUBE_API_KEY:
-    YDL_STREAM_OPTS = {
-        "quiet": True,
-        "no_warnings": True,
-        "format": "bestaudio[ext=m4a]/bestaudio/best",
-        "noplaylist": True,
-        "socket_timeout": 30,
-        "youtube_include_dash_manifest": False,
-        "extractor_args": {
-            "youtube": {
-                "player_client": ["ios", "android", "web"],
-                "player_skip_js_execution": False,
-            }
-        },
-        "http_headers": {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-        },
-    }
-else:
-    YDL_STREAM_OPTS = {
-        "quiet": True,
-        "no_warnings": True,
-        "format": "bestaudio[ext=m4a]/bestaudio/best",
-        "noplaylist": True,
-        "socket_timeout": 30,
-        "extractor_args": {
-            "youtube": {
-                "player_client": ["ios", "android", "web"],
-                "player_skip_js_execution": False,
-            }
-        },
-        "http_headers": {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-        },
-    }
+# Use innertube extractor for better compatibility
+YDL_STREAM_OPTS = {
+    "quiet": True,
+    "no_warnings": True,
+    "format": "bestaudio[ext=m4a]/bestaudio/best",
+    "noplaylist": True,
+    "socket_timeout": 30,
+    "youtube_include_dash_manifest": False,
+    "extractor_args": {
+        "youtube": {
+            "player_client": ["web_embedded"],  # Use web_embedded for innertube
+            "player_skip_js_execution": False,
+        }
+    },
+    "http_headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+    },
+}
+
+YDL_PLAYLIST_OPTS = {
+    "quiet": True,
+    "no_warnings": True,
+    "extract_flat": True,
+    "socket_timeout": 30,
+    "http_headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+    },
+}
 
 
 def _run_ydl(opts: dict, url: str) -> dict:
@@ -91,33 +83,45 @@ def _run_ydl(opts: dict, url: str) -> dict:
         return ydl.extract_info(url, download=False)
 
 
-async def _extract_stream_with_retries(url: str, max_retries: int = 3) -> dict:
-    """Try to extract stream with multiple retries and different approaches."""
+async def _extract_stream_with_innertube(url: str, max_retries: int = 3) -> dict:
+    """Extract stream using innertube (unofficial YouTube API)."""
     last_error = None
     
-    for attempt in range(max_retries):
-        try:
-            print(f"Extraction attempt {attempt + 1}/{max_retries}")
-            info = await asyncio.wait_for(
-                asyncio.to_thread(_run_ydl, YDL_STREAM_OPTS, url),
-                timeout=25.0
-            )
-            print(f"✓ Success on attempt {attempt + 1}")
-            return info
-        except asyncio.TimeoutError:
-            last_error = "Timeout"
-            print(f"✗ Attempt {attempt + 1} timed out")
-            if attempt < max_retries - 1:
-                await asyncio.sleep(1)  # Wait before retry
-            continue
-        except Exception as e:
-            last_error = str(e)
-            print(f"✗ Attempt {attempt + 1} failed: {e}")
-            if attempt < max_retries - 1:
-                await asyncio.sleep(1)  # Wait before retry
-            continue
+    # Try different player clients
+    player_clients = ["web_embedded", "web", "android", "ios"]
     
-    raise Exception(f"Failed after {max_retries} attempts. Last error: {last_error}")
+    for client in player_clients:
+        for attempt in range(max_retries):
+            try:
+                opts = YDL_STREAM_OPTS.copy()
+                opts["extractor_args"] = {
+                    "youtube": {
+                        "player_client": [client],
+                        "player_skip_js_execution": False,
+                    }
+                }
+                
+                print(f"Trying {client} client, attempt {attempt + 1}/{max_retries}")
+                info = await asyncio.wait_for(
+                    asyncio.to_thread(_run_ydl, opts, url),
+                    timeout=25.0
+                )
+                print(f"✓ Success with {client} client")
+                return info
+            except asyncio.TimeoutError:
+                last_error = "Timeout"
+                print(f"✗ {client} attempt {attempt + 1} timed out")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(1)
+                continue
+            except Exception as e:
+                last_error = str(e)
+                print(f"✗ {client} attempt {attempt + 1} failed: {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(1)
+                continue
+    
+    raise Exception(f"Failed with all clients. Last error: {last_error}")
 
 
 @app.get("/api/search")
@@ -165,6 +169,51 @@ async def search(q: str = Query(..., min_length=1), limit: int = Query(8, ge=1, 
     return {"query": query, "results": results}
 
 
+@app.get("/api/playlist/youtube")
+async def youtube_playlist(url: str = Query(...)):
+    """Extract songs from a YouTube playlist."""
+    try:
+        info = await asyncio.to_thread(_run_ydl, YDL_PLAYLIST_OPTS, url)
+    except Exception as e:
+        raise HTTPException(502, f"Failed to extract playlist: {e}") from e
+
+    results = []
+    for entry in info.get("entries") or []:
+        if not entry:
+            continue
+        vid = entry.get("id")
+        if not vid:
+            continue
+        title = entry.get("title") or "Unknown"
+        uploader = entry.get("uploader") or entry.get("channel") or "Unknown"
+        duration = entry.get("duration")
+        thumb = None
+        thumbs = entry.get("thumbnails") or []
+        if thumbs:
+            thumb = thumbs[-1].get("url")
+        elif entry.get("thumbnail"):
+            thumb = entry["thumbnail"]
+
+        results.append(
+            {
+                "id": vid,
+                "title": title,
+                "artist": uploader,
+                "duration": float(duration) if duration else None,
+                "thumbnail": thumb,
+                "url": f"https://www.youtube.com/watch?v={vid}",
+            }
+        )
+
+    return {"playlist": True, "results": results}
+
+
+@app.get("/api/playlist/spotify")
+async def spotify_playlist(url: str = Query(...)):
+    """Extract songs from a Spotify playlist (convert to YouTube search)."""
+    raise HTTPException(501, "Spotify playlist support requires additional setup. Use YouTube playlists instead.")
+
+
 @app.get("/api/stream/{video_id}")
 async def stream_info(video_id: str):
     """Return metadata + a direct (short-lived) audio URL."""
@@ -173,13 +222,12 @@ async def stream_info(video_id: str):
 
     url = f"https://www.youtube.com/watch?v={video_id}"
     try:
-        info = await _extract_stream_with_retries(url)
+        info = await _extract_stream_with_innertube(url)
     except Exception as e:
         raise HTTPException(502, f"Could not extract stream: {e}") from e
 
     stream_url = info.get("url")
     if not stream_url:
-        # pick first audio-only format
         for f in info.get("formats") or []:
             if f.get("url") and f.get("acodec") not in (None, "none") and f.get("vcodec") in (None, "none"):
                 stream_url = f["url"]
@@ -211,7 +259,7 @@ async def proxy_audio(video_id: str, request: Request):
     url = f"https://www.youtube.com/watch?v={video_id}"
     
     try:
-        info = await _extract_stream_with_retries(url)
+        info = await _extract_stream_with_innertube(url)
     except Exception as e:
         print(f"Extraction error for {video_id}: {e}")
         raise HTTPException(502, f"Could not extract stream") from e
@@ -225,9 +273,8 @@ async def proxy_audio(video_id: str, request: Request):
     if not stream_url:
         raise HTTPException(404, "No audio stream found")
 
-    # Forward Range header for seeking
     headers = {
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
         "Accept": "*/*",
     }
     range_header = request.headers.get("range")
@@ -290,13 +337,11 @@ async def lyrics(
     headers = {"User-Agent": "LineGrid/1.0 (personal player)"}
 
     async with httpx.AsyncClient(timeout=8.0) as client:
-        # Exact match first
         r = await client.get("https://lrclib.net/api/get", params=params, headers=headers)
         data = None
         if r.status_code == 200:
             data = r.json()
         else:
-            # Fallback search
             r2 = await client.get(
                 "https://lrclib.net/api/search",
                 params={"q": f"{artist} {title}".strip()},
@@ -305,7 +350,6 @@ async def lyrics(
             if r2.status_code == 200:
                 candidates = r2.json() or []
                 if candidates:
-                    # pick closest duration if available
                     best = candidates[0]
                     if duration:
                         best = min(
@@ -344,7 +388,6 @@ async def lyrics(
     }
 
 
-# Serve static files
 @app.get("/")
 async def serve_index():
     """Serve index.html from the application root."""
@@ -399,6 +442,7 @@ if __name__ == "__main__":
     if YOUTUBE_API_KEY:
         print(f"  ✓ YouTube API Key configured")
     else:
-        print(f"  ⚠ No YouTube API Key - using fallback extraction")
+        print(f"  ⚠ No YouTube API Key")
+    print(f"  ✓ Using innertube for extraction")
     print()
     uvicorn.run(app, host=host, port=port, log_level="info")
