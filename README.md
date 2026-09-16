@@ -2,13 +2,13 @@
 
 ## Quick start
 - make sure python is installed.
-For linux run in terminal: 
+-For linux run in terminal: 
 ```bash
 cd line-grid
 pip install yt-dlp fastapi "uvicorn[standard]" httpx
 python3 server.py
 ```
-For Windows run in powershell: 
+-For Windows run in powershell: 
 ```bash
 cd line-grid
 pip install yt-dlp fastapi "uvicorn[standard]" httpx
