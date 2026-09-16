@@ -21,6 +21,8 @@
   let onlineMode = false;
   let currentOnline = null; // { id, title, artist, duration, thumbnail }
   let searchResults = [];
+  let playlistIndex = -1; // index in searchResults when playing a playlist queue
+  let autoAdvance = false; // true after loading a playlist
   let busy = false;
 
   function setStatus(text, isBusy = false) {
@@ -28,9 +30,11 @@
     if (!text) {
       searchStatus.hidden = true;
       searchStatus.textContent = "";
+      searchStatus.style.display = "none";
       return;
     }
     searchStatus.hidden = false;
+    searchStatus.style.display = "block";
     searchStatus.textContent = text;
     searchStatus.dataset.busy = isBusy ? "true" : "false";
   }
@@ -41,8 +45,7 @@
   }
 
   // ---------- Search ----------
-  searchForm.addEventListener("submit", async (e) => {
-    e.preventDefault();
+  async function runSearch() {
     const q = searchInput.value.trim();
     if (!q || busy) return;
     busy = true;
@@ -55,8 +58,11 @@
       searchResults = data.results || [];
       if (!searchResults.length) {
         setStatus("No results. Try another query.");
+        autoAdvance = false;
       } else {
-        setStatus(`${searchResults.length} results — click to play`);
+        autoAdvance = true;
+        playlistIndex = -1;
+        setStatus(`${searchResults.length} results — click to play (auto-next on)`);
         renderSearchResults();
       }
     } catch (err) {
@@ -65,9 +71,91 @@
     } finally {
       busy = false;
     }
+  }
+  searchForm.addEventListener("submit", (e) => { e.preventDefault(); runSearch(); });
+  const searchBtn = $("searchBtn");
+  if (searchBtn) searchBtn.addEventListener("click", (e) => { e.preventDefault(); runSearch(); });
+  searchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); runSearch(); }
   });
 
-  function renderSearchResults() {
+
+  // ---------- Playlist URL ----------
+  async function runPlaylist() {
+    const playlistInput = $("playlistInput");
+    if (!playlistInput) return;
+    let url = playlistInput.value.trim();
+    if (!url || busy) return;
+
+    // Normalize: full URL, list=…, or bare PLxxxx id
+    if (/^PL[\w-]+$/i.test(url)) {
+      url = "https://www.youtube.com/playlist?list=" + url;
+    } else if (/^list=/i.test(url)) {
+      url = "https://www.youtube.com/playlist?" + url;
+    } else if (/[?&]list=([\w-]+)/i.test(url)) {
+      // keep full URL — server extracts list id
+    } else if (/\/playlist/i.test(url)) {
+      // ok
+    } else {
+      setStatus("Need full playlist link, e.g. youtube.com/playlist?list=PLxxxx");
+      return;
+    }
+
+    busy = true;
+    autoAdvance = true;
+    playlistIndex = -1;
+    setStatus("Loading playlist… (" + url.slice(0, 40) + "…)", true);
+    console.log("[LineGrid] playlist URL:", url);
+    searchResults = [];
+    try {
+      const res = await fetch(
+        `${API}/api/playlist/youtube?url=${encodeURIComponent(url)}`
+      );
+      if (!res.ok) {
+        let errText = await res.text();
+        try {
+          const j = JSON.parse(errText);
+          errText = j.detail || errText;
+        } catch (_) {}
+        throw new Error(errText || res.statusText);
+      }
+      const data = await res.json();
+      searchResults = data.results || [];
+      if (!searchResults.length) {
+        setStatus("Playlist is empty or could not be read.");
+        autoAdvance = false;
+      } else {
+        const name = data.title ? `"${data.title}"` : "Playlist";
+        setStatus(`${searchResults.length} tracks from ${name} — playing in order`);
+        renderSearchResults();
+        playlistIndex = 0;
+        playOnline(searchResults[0]);
+      }
+    } catch (err) {
+      console.error(err);
+      autoAdvance = false;
+      setStatus("Could not load playlist: " + (err.message || err));
+    } finally {
+      busy = false;
+    }
+  }
+
+  const playlistForm = $("playlistForm");
+  const playlistInput = $("playlistInput");
+  const playlistBtn = $("playlistBtn");
+  if (playlistForm) {
+    playlistForm.addEventListener("submit", (e) => { e.preventDefault(); e.stopPropagation(); runPlaylist(); });
+  }
+  if (playlistBtn) {
+    playlistBtn.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); runPlaylist(); });
+  }
+  if (playlistInput) {
+    playlistInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); runPlaylist(); }
+    });
+  }
+
+    function renderSearchResults() {
     // Prepend search results above demo tracks
     const existingDemo = [...queue.querySelectorAll(".track-row:not(.is-online)")];
     queue.innerHTML = "";
@@ -117,6 +205,11 @@
   async function playOnline(tr) {
     if (busy) return;
     busy = true;
+    // Keep queue position in sync when user clicks a track
+    if (searchResults.length) {
+      const found = searchResults.findIndex((t) => t.id === tr.id);
+      if (found >= 0) playlistIndex = found;
+    }
     setStatus(`Loading “${tr.title}”…`, true);
     stopDemoEngine();
 
@@ -359,6 +452,24 @@
   remote.addEventListener("pause", () => updatePlayButton(false));
   remote.addEventListener("ended", () => {
     updatePlayButton(false);
+    if (autoAdvance && searchResults.length) {
+      // find current index
+      let idx = playlistIndex;
+      if (currentOnline) {
+        const found = searchResults.findIndex((t) => t.id === currentOnline.id);
+        if (found >= 0) idx = found;
+      }
+      const next = idx + 1;
+      if (next < searchResults.length) {
+        playlistIndex = next;
+        setStatus(`Next · ${searchResults[next].title}`);
+        playOnline(searchResults[next]);
+        return;
+      }
+      setStatus("Playlist finished");
+      playlistIndex = -1;
+      return;
+    }
     setStatus("Ended");
   });
   remote.addEventListener("error", () => {
@@ -408,6 +519,43 @@
       setStatus("");
     }
   });
+
+
+  // Next / prev while in online queue
+  const nextBtn = $("next");
+  const prevBtn = $("prev");
+  if (nextBtn) {
+    nextBtn.addEventListener("click", (e) => {
+      if (!onlineMode || !searchResults.length) return;
+      e.stopImmediatePropagation();
+      let idx = playlistIndex;
+      if (currentOnline) {
+        const f = searchResults.findIndex((t) => t.id === currentOnline.id);
+        if (f >= 0) idx = f;
+      }
+      const n = Math.min(searchResults.length - 1, idx + 1);
+      if (n !== idx && searchResults[n]) {
+        playlistIndex = n;
+        playOnline(searchResults[n]);
+      }
+    }, true);
+  }
+  if (prevBtn) {
+    prevBtn.addEventListener("click", (e) => {
+      if (!onlineMode || !searchResults.length) return;
+      e.stopImmediatePropagation();
+      let idx = playlistIndex;
+      if (currentOnline) {
+        const f = searchResults.findIndex((t) => t.id === currentOnline.id);
+        if (f >= 0) idx = f;
+      }
+      const n = Math.max(0, idx - 1);
+      if (searchResults[n]) {
+        playlistIndex = n;
+        playOnline(searchResults[n]);
+      }
+    }, true);
+  }
 
   // Expose helpers
   window.__lineGridOnline = {
