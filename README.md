@@ -1,7 +1,7 @@
 # Line Grid — synced lyric player + YouTube search
 
 ## Quick start
-
+For linux : 
 ```bash
 cd line-grid
 pip install yt-dlp fastapi "uvicorn[standard]" httpx
