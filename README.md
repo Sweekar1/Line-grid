@@ -1,7 +1,7 @@
 # Line Grid — synced lyric player + YouTube search
 
 ## Quick start
-make sure python is installed.
+- make sure python is installed.
 For linux run in terminal: 
 ```bash
 cd line-grid
@@ -16,6 +16,7 @@ python server.py
 ```
 
 Open **http://127.0.0.1:8765/**
+
 
 
 ## Features
