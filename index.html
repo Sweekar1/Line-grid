@@ -95,9 +95,13 @@
               <h2 id="queueHeading" data-i18n="queue.title">Tracks</h2>
               <span id="queueCount">6 cuts</span>
             </div>
-            <form class="search-bar" id="searchForm" autocomplete="off">
+            <form class="search-bar" id="searchForm" autocomplete="off" action="#" onsubmit="return false;">
               <input type="search" id="searchInput" placeholder="Search YouTube…" aria-label="Search songs on YouTube" />
-              <button type="submit" id="searchBtn" title="Search">⌕</button>
+              <button type="button" id="searchBtn" title="Search">⌕</button>
+            </form>
+            <form class="search-bar playlist-bar" id="playlistForm" autocomplete="off" action="#" onsubmit="return false;">
+              <input type="text" id="playlistInput" placeholder="Paste YouTube playlist URL…" aria-label="YouTube playlist URL" />
+              <button type="button" id="playlistBtn" title="Load playlist">☰</button>
             </form>
             <div class="search-status" id="searchStatus" hidden></div>
             <div class="queue-list" id="queue"></div>
