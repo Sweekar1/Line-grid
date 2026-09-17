@@ -1,22 +1,14 @@
 # Line Grid — synced lyric player + YouTube search
 
 ## Quick start
-- NOTE : make sure python is installed.
-- For linux run in terminal: 
+
 ```bash
 cd line-grid
 pip install yt-dlp fastapi "uvicorn[standard]" httpx
 python3 server.py
 ```
-- For Windows run in powershell: 
-```bash
-cd line-grid
-pip install yt-dlp fastapi "uvicorn[standard]" httpx
-python server.py
-```
 
 Open **http://127.0.0.1:8765/**
-
 
 
 ## Features

@@ -10,8 +10,12 @@
   <script src="./app.js" defer></script>
   <script src="./theme.js" defer></script>
   <script src="./online.js" defer></script>
+  <script src="./immersive.js" defer></script>
 </head>
-<body>
+<body class="immersive">
+  <div class="ambient" aria-hidden="true">
+    <img id="ambientCover" alt="">
+  </div>
   <div class="app">
     <main class="shell">
       <div class="topline">
@@ -20,19 +24,20 @@
           <span data-i18n="app.name">Line Grid</span>
         </div>
         <div class="topline-right">
+          <div class="state" id="playState" role="status" aria-live="off">Ready · 0:00</div>
           <button type="button" id="themeToggle" class="theme-toggle" aria-label="Toggle theme" title="Toggle light / dark theme">
             <span class="theme-icon theme-icon-sun" aria-hidden="true">☀</span>
             <span class="theme-icon theme-icon-moon" aria-hidden="true">☾</span>
             <span class="theme-knob" aria-hidden="true"></span>
           </button>
-          <div class="state" id="playState" role="status" aria-live="off">Ready · 0:00</div>
+          <button type="button" id="menuBtn" class="menu-btn" aria-label="Open tracks" aria-expanded="false" aria-controls="queueDrawer" title="Tracks & search">☰</button>
         </div>
       </div>
 
       <section class="grid">
         <article class="primary-stage" id="stage" aria-labelledby="trackTitle">
           <div class="cover-wrap">
-            <img class="cover" id="cover" src="./assets/covers/cover-1.webp" alt="Cover art for Paper Sun" width="600" height="600">
+            <img class="cover" id="cover" src="./assets/covers/cover-1.webp" alt="Cover art for Paper Sun" width="600" height="600" crossorigin="anonymous">
           </div>
 
           <div class="meta-grid">
@@ -85,32 +90,38 @@
           <section class="panel lyrics-panel" aria-labelledby="lyricsHeading">
             <div class="panel-head">
               <h2 id="lyricsHeading" data-i18n="lyrics.title">Lyrics</h2>
-              <span id="lineTime">0:00</span>
+              <div class="panel-head-actions">
+                <span id="lineTime">0:00</span>
+              </div>
             </div>
-            <div class="lyrics" id="lyrics"></div>
-          </section>
-
-          <section class="panel queue-panel" aria-labelledby="queueHeading">
-            <div class="panel-head">
-              <h2 id="queueHeading" data-i18n="queue.title">Tracks</h2>
-              <span id="queueCount">6 cuts</span>
+            <div class="lyrics" id="lyrics">
+              <div class="lyrics-track" id="lyricsTrack"></div>
             </div>
-            <form class="search-bar" id="searchForm" autocomplete="off" action="#" onsubmit="return false;">
-              <input type="search" id="searchInput" placeholder="Search YouTube…" aria-label="Search songs on YouTube" />
-              <button type="button" id="searchBtn" title="Search">⌕</button>
-            </form>
-            <form class="search-bar playlist-bar" id="playlistForm" autocomplete="off" action="#" onsubmit="return false;">
-              <input type="text" id="playlistInput" placeholder="Paste YouTube playlist URL…" aria-label="YouTube playlist URL" />
-              <button type="button" id="playlistBtn" title="Load playlist">☰</button>
-            </form>
-            <div class="search-status" id="searchStatus" hidden></div>
-            <div class="queue-list" id="queue"></div>
           </section>
         </div>
       </section>
-
-    
     </main>
   </div>
+
+  <div class="drawer-backdrop" id="drawerBackdrop" hidden></div>
+  <aside class="queue-drawer" id="queueDrawer" aria-labelledby="queueHeading" aria-hidden="true">
+    <div class="panel-head">
+      <h2 id="queueHeading" data-i18n="queue.title">Tracks</h2>
+      <div class="panel-head-actions">
+        <span id="queueCount">6 cuts</span>
+        <button type="button" id="menuClose" class="immersive-btn" title="Close tracks" aria-label="Close tracks">✕</button>
+      </div>
+    </div>
+    <form class="search-bar" id="searchForm" autocomplete="off" action="#" onsubmit="return false;">
+      <input type="search" id="searchInput" placeholder="Search YouTube…" aria-label="Search songs on YouTube" />
+      <button type="button" id="searchBtn" title="Search">⌕</button>
+    </form>
+    <form class="search-bar playlist-bar" id="playlistForm" autocomplete="off" action="#" onsubmit="return false;">
+      <input type="text" id="playlistInput" placeholder="Paste YouTube playlist URL…" aria-label="YouTube playlist URL" />
+      <button type="button" id="playlistBtn" title="Load playlist">↓</button>
+    </form>
+    <div class="search-status" id="searchStatus" hidden></div>
+    <div class="queue-list" id="queue"></div>
+  </aside>
 </body>
 </html>

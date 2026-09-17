@@ -624,13 +624,14 @@
   function renderLyrics() {
     const tr = TRACKS[state.index];
     activeLine = -1;
-    els.lyrics.scrollTop = 0;
-    els.lyrics.innerHTML = '';
+    const host = document.getElementById('lyricsTrack') || els.lyrics;
+    host.innerHTML = '';
+    if (els.lyrics) els.lyrics.scrollTop = 0;
     if (!tr.lyrics.length) {
       const empty = document.createElement('p');
       empty.className = 'lyrics-empty';
       empty.textContent = t('lyrics.empty');
-      els.lyrics.appendChild(empty);
+      host.appendChild(empty);
       return;
     }
     tr.lyrics.forEach((line) => {
@@ -640,8 +641,10 @@
       btn.dataset.time = String(line[0]);
       btn.textContent = line[1];
       btn.addEventListener('click', () => seekTo(line[0]));
-      els.lyrics.appendChild(btn);
+      host.appendChild(btn);
     });
+    const first = host.querySelector('.lyric-line');
+    if (first && window.__lineGridUI) window.__lineGridUI.scrollActiveLyric(first);
   }
 
   let activeLine = -1;
@@ -667,6 +670,10 @@
   function scrollActiveIntoView(node) {
     if (!node) return;
     if (Date.now() - state.userScrolled < 2500) return;
+    if (window.__lineGridUI && window.__lineGridUI.scrollActiveLyric) {
+      window.__lineGridUI.scrollActiveLyric(node);
+      return;
+    }
     const box = els.lyrics;
     const target = node.offsetTop - (box.clientHeight - node.offsetHeight) / 2;
     box.scrollTo({ top: Math.max(0, target), behavior: reducedMotion ? 'auto' : 'smooth' });

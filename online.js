@@ -233,6 +233,9 @@
       markCurrentRow(tr.id);
       updatePlayButton(true);
       applyTrackMeta(tr, remote.currentTime || 0);
+      if (window.__lineGridUI && window.__lineGridUI.closeDrawer) {
+        window.__lineGridUI.closeDrawer();
+      }
     } catch (err) {
       console.error(err);
       setStatus("Could not play this track. Server may be blocked or the video is unavailable.");
@@ -260,9 +263,13 @@
     const t = Math.max(0, time || 0);
 
     if (cover) {
-      const src = tr.thumbnail || cover.src;
-      if (tr.thumbnail && cover.getAttribute("src") !== tr.thumbnail) {
-        cover.src = tr.thumbnail;
+      const raw = tr.thumbnail || "";
+      let src = raw;
+      if (raw && /^https?:\/\//i.test(raw)) {
+        src = `/api/img?url=${encodeURIComponent(raw)}`;
+      }
+      if (src && cover.getAttribute("src") !== src) {
+        cover.src = src;
       }
       cover.alt = `Cover art for ${tr.title}`;
     }
@@ -336,7 +343,9 @@
   async function loadLyrics(tr) {
     const lyricsEl = $("lyrics");
     if (!lyricsEl) return;
-    lyricsEl.innerHTML = `<p class="lyric-line" style="color:var(--muted)">Loading lyrics…</p>`;
+    lyricsEl.innerHTML = "";
+    const host = $("lyricsTrack") || lyricsEl;
+    host.innerHTML = `<p class="lyric-line" style="color:var(--muted)">Loading lyrics…</p>`;
 
     try {
       const params = new URLSearchParams({
@@ -348,9 +357,9 @@
       const res = await fetch(`${API}/api/lyrics?${params}`);
       const data = await res.json();
 
-      lyricsEl.innerHTML = "";
+      host.innerHTML = "";
       if (data.found && data.synced && data.synced.length) {
-        data.synced.forEach((line, i) => {
+        data.synced.forEach((line) => {
           const btn = document.createElement("button");
           btn.type = "button";
           btn.className = "lyric-line";
@@ -360,26 +369,28 @@
             remote.currentTime = line.t;
             if (remote.paused) remote.play();
           });
-          lyricsEl.appendChild(btn);
+          host.appendChild(btn);
         });
-        // store for sync
         remote._syncedLyrics = data.synced;
+        remote._lyricActive = -1;
+        const first = host.querySelector(".lyric-line");
+        if (first && window.__lineGridUI) window.__lineGridUI.scrollActiveLyric(first);
       } else if (data.plain) {
         data.plain.split("\n").forEach((text) => {
           if (!text.trim()) return;
           const p = document.createElement("p");
           p.className = "lyric-line";
           p.textContent = text;
-          lyricsEl.appendChild(p);
+          host.appendChild(p);
         });
         remote._syncedLyrics = null;
       } else {
-        lyricsEl.innerHTML = `<p class="lyric-line" style="color:var(--muted)">No lyrics found for this track.</p>`;
+        host.innerHTML = `<p class="lyric-line" style="color:var(--muted)">No lyrics found for this track.</p>`;
         remote._syncedLyrics = null;
       }
     } catch (err) {
       console.error(err);
-      lyricsEl.innerHTML = `<p class="lyric-line" style="color:var(--muted)">Lyrics unavailable.</p>`;
+      host.innerHTML = `<p class="lyric-line" style="color:var(--muted)">Lyrics unavailable.</p>`;
       remote._syncedLyrics = null;
     }
   }
@@ -412,12 +423,10 @@
         node.classList.toggle("is-active", i === active);
         node.classList.toggle("is-past", i < active);
       });
-      if (active >= 0 && nodes[active]) {
-        const box = nodes[active];
-        const parent = $("lyrics");
-        if (parent) {
-          const mid = parent.clientHeight / 2;
-          parent.scrollTop = box.offsetTop - mid + box.clientHeight / 2;
+      if (active >= 0 && active !== remote._lyricActive && nodes[active]) {
+        remote._lyricActive = active;
+        if (window.__lineGridUI && window.__lineGridUI.scrollActiveLyric) {
+          window.__lineGridUI.scrollActiveLyric(nodes[active]);
         }
       }
     }

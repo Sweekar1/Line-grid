@@ -21,7 +21,7 @@ import httpx
 import yt_dlp
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.responses import StreamingResponse, FileResponse, Response
 from starlette.background import BackgroundTask
 
 app = FastAPI(title="Line Grid API")
@@ -70,7 +70,9 @@ YDL_STREAM_OPTS = {
 YDL_PLAYLIST_OPTS = {
     "quiet": True,
     "no_warnings": True,
-    "extract_flat": True,
+    "extract_flat": "in_playlist",
+    "playlistend": 50,
+    "noplaylist": False,
     "socket_timeout": 30,
     "http_headers": {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
@@ -172,19 +174,39 @@ async def search(q: str = Query(..., min_length=1), limit: int = Query(8, ge=1, 
 @app.get("/api/playlist/youtube")
 async def youtube_playlist(url: str = Query(...)):
     """Extract songs from a YouTube playlist."""
+    raw = (url or "").strip()
+    # Accept watch?v=…&list=… or playlist?list=…
+    m = re.search(r"[?&]list=([\w-]+)", raw)
+    if m:
+        playlist_url = f"https://www.youtube.com/playlist?list={m.group(1)}"
+    elif "/playlist" in raw.lower():
+        playlist_url = raw
+    else:
+        raise HTTPException(
+            400,
+            "Not a playlist URL. It must contain list=… (playlist id).",
+        )
+
     try:
-        info = await asyncio.to_thread(_run_ydl, YDL_PLAYLIST_OPTS, url)
+        info = await asyncio.to_thread(_run_ydl, YDL_PLAYLIST_OPTS, playlist_url)
     except Exception as e:
         raise HTTPException(502, f"Failed to extract playlist: {e}") from e
+
+    if not info:
+        raise HTTPException(404, "Playlist not found or private")
 
     results = []
     for entry in info.get("entries") or []:
         if not entry:
             continue
+        if entry.get("_type") == "playlist":
+            continue
         vid = entry.get("id")
-        if not vid:
+        if not vid or not re.fullmatch(r"[\w-]{6,20}", str(vid)):
             continue
         title = entry.get("title") or "Unknown"
+        if title in ("[Deleted video]", "[Private video]"):
+            continue
         uploader = entry.get("uploader") or entry.get("channel") or "Unknown"
         duration = entry.get("duration")
         thumb = None
@@ -205,7 +227,15 @@ async def youtube_playlist(url: str = Query(...)):
             }
         )
 
-    return {"playlist": True, "results": results}
+    if not results:
+        raise HTTPException(404, "No playable videos in this playlist")
+
+    return {
+        "playlist": True,
+        "title": info.get("title") or "Playlist",
+        "count": len(results),
+        "results": results,
+    }
 
 
 @app.get("/api/playlist/spotify")
@@ -388,6 +418,46 @@ async def lyrics(
     }
 
 
+@app.get("/api/img")
+async def proxy_image(url: str = Query(..., min_length=8)):
+    """Same-origin image proxy so the player can sample album color."""
+    from urllib.parse import urlparse
+
+    raw = url.strip()
+    if not raw.startswith(("https://", "http://")):
+        raise HTTPException(400, "Invalid image url")
+    host = (urlparse(raw).hostname or "").lower()
+    allowed = (
+        "i.ytimg.com",
+        "yt3.ggpht.com",
+        "yt3.googleusercontent.com",
+        "lh3.googleusercontent.com",
+        "img.youtube.com",
+        "i9.ytimg.com",
+    )
+    if not any(host == a or host.endswith("." + a) for a in allowed):
+        raise HTTPException(400, "Host not allowed")
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=12.0) as client:
+            r = await client.get(
+                raw,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    "Accept": "image/*,*/*;q=0.8",
+                },
+            )
+    except Exception as e:
+        raise HTTPException(502, f"Image fetch failed: {e}") from e
+    if r.status_code != 200 or not r.content:
+        raise HTTPException(404, "Image not found")
+    media = r.headers.get("content-type") or "image/jpeg"
+    if ";" in media:
+        media = media.split(";", 1)[0].strip()
+    if not media.startswith("image/"):
+        media = "image/jpeg"
+    return Response(content=r.content, media_type=media, headers={"Cache-Control": "public, max-age=86400"})
+
+
 @app.get("/")
 async def serve_index():
     """Serve index.html from the application root."""
@@ -436,7 +506,7 @@ async def serve_static(file_path: str):
 if __name__ == "__main__":
     import uvicorn
 
-    port = int(os.environ.get("PORT", "8765"))
+    port = int(os.environ.get("PORT", "8080"))
     host = os.environ.get("HOST", "0.0.0.0")
     print(f"\n  Line Grid server → http://{host}:{port}/")
     if YOUTUBE_API_KEY:
