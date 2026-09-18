@@ -356,37 +356,125 @@ async def lyrics(
     artist: str = Query(""),
     duration: Optional[float] = Query(None),
 ):
-    """Fetch synced lyrics from LRCLIB (free, no key)."""
-    params: dict[str, Any] = {
-        "track_name": title.strip(),
-        "artist_name": (artist or "").strip() or " ",
-    }
-    if duration and duration > 0:
-        params["duration"] = int(round(duration))
-
+    """Fetch synced lyrics from LRCLIB with robust cleanup for YouTube titles."""
     headers = {"User-Agent": "LineGrid/1.0 (personal player)"}
 
-    async with httpx.AsyncClient(timeout=8.0) as client:
+    def clean_noise(s: str) -> str:
+        s = re.sub(r"\s*[\(\[\{].*?[\)\]\}]", " ", s)
+        s = re.sub(
+            r"\b(official|audio|video|lyrics?|visualizer|mv|hd|4k|remaster(ed)?|"
+            r"topic|sped\s*up|slowed|nightcore|tradu[cç][aã]o|legendado|"
+            r"subtitles?|full\s*version|single\s*version)\b",
+            " ",
+            s,
+            flags=re.I,
+        )
+        s = re.sub(r"\s{2,}", " ", s).strip(" -–—|/\\")
+        return s.strip()
+
+    raw_title = (title or "").strip()
+    raw_artist = (artist or "").strip()
+
+    # Parse "Artist - Track" / "Artist – Track" from YouTube titles
+    parsed_artist, parsed_title = "", raw_title
+    m = re.match(r"^(.{2,60}?)\s*[-–—]\s*(.+)$", raw_title)
+    if m:
+        parsed_artist, parsed_title = m.group(1).strip(), m.group(2).strip()
+
+    track_candidates = []
+    for t in (
+        parsed_title,
+        raw_title,
+        re.split(r"\s*/\s*", parsed_title)[0] if parsed_title else "",
+        re.split(r"\s*/\s*", parsed_title)[-1] if "/" in (parsed_title or "") else "",
+    ):
+        c = clean_noise(t)
+        if c and c not in track_candidates:
+            track_candidates.append(c)
+
+    artist_candidates = []
+    for a in (parsed_artist, raw_artist):
+        c = clean_noise(a)
+        # skip obvious channel-only noise if we have a better parse
+        if c and c not in artist_candidates:
+            artist_candidates.append(c)
+    if not artist_candidates:
+        artist_candidates = [" "]
+
+    search_queries = []
+    for a in artist_candidates:
+        for t in track_candidates:
+            search_queries.append(f"{a} {t}".strip())
+            search_queries.append(t)
+    # unique preserve order
+    seen = set()
+    search_queries = [q for q in search_queries if q and not (q in seen or seen.add(q))]
+
+    async def try_get(client: httpx.AsyncClient, track_name: str, artist_name: str):
+        params: dict[str, Any] = {
+            "track_name": track_name,
+            "artist_name": artist_name or " ",
+        }
+        # Only send duration on exact get as a soft hint; skip if it causes misses
         r = await client.get("https://lrclib.net/api/get", params=params, headers=headers)
-        data = None
         if r.status_code == 200:
-            data = r.json()
-        else:
-            r2 = await client.get(
-                "https://lrclib.net/api/search",
-                params={"q": f"{artist} {title}".strip()},
-                headers=headers,
-            )
-            if r2.status_code == 200:
-                candidates = r2.json() or []
-                if candidates:
-                    best = candidates[0]
-                    if duration:
-                        best = min(
-                            candidates,
-                            key=lambda c: abs((c.get("duration") or 0) - duration),
-                        )
-                    data = best
+            return r.json()
+        return None
+
+    async def try_search(client: httpx.AsyncClient, q: str):
+        r = await client.get(
+            "https://lrclib.net/api/search",
+            params={"q": q},
+            headers=headers,
+        )
+        if r.status_code != 200:
+            return None
+        candidates = r.json() or []
+        if not candidates:
+            return None
+
+        def score(c: dict) -> float:
+            s = 0.0
+            if c.get("syncedLyrics"):
+                s += 100
+            if c.get("plainLyrics"):
+                s += 10
+            if duration and c.get("duration"):
+                s -= min(40, abs(float(c["duration"]) - duration) * 0.5)
+            # prefer matching artist tokens
+            an = (c.get("artistName") or "").lower()
+            tn = (c.get("trackName") or "").lower()
+            for a in artist_candidates:
+                if a and a.lower() in an:
+                    s += 25
+            for t in track_candidates:
+                if t and t.lower()[:8] in tn:
+                    s += 15
+            return s
+
+        candidates = sorted(candidates, key=score, reverse=True)
+        return candidates[0]
+
+    data = None
+    async with httpx.AsyncClient(timeout=12.0) as client:
+        # 1) exact get with cleaned pairs
+        for a in artist_candidates:
+            for t in track_candidates:
+                data = await try_get(client, t, a)
+                if data and (data.get("syncedLyrics") or data.get("plainLyrics")):
+                    break
+            if data and (data.get("syncedLyrics") or data.get("plainLyrics")):
+                break
+
+        # 2) search fallbacks
+        if not data or not (data.get("syncedLyrics") or data.get("plainLyrics")):
+            for q in search_queries[:12]:
+                found = await try_search(client, q)
+                if found and (found.get("syncedLyrics") or found.get("plainLyrics")):
+                    data = found
+                    break
+                if found and not data:
+                    data = found
 
     if not data:
         return {"found": False, "synced": [], "plain": None}
@@ -416,6 +504,8 @@ async def lyrics(
             "duration": data.get("duration"),
         },
     }
+
+
 
 
 @app.get("/api/img")

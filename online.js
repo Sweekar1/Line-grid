@@ -348,11 +348,12 @@
     host.innerHTML = `<p class="lyric-line" style="color:var(--muted)">Loading lyrics…</p>`;
 
     try {
+      // Send raw YouTube title/artist; server cleans and tries multiple LRCLIB strategies
       const params = new URLSearchParams({
-        title: tr.title.replace(/\s*[\(\[].*?[\)\]]/g, "").replace(/\s*(Official|Audio|Video|Lyrics).*$/i, "").trim() || tr.title,
-        artist: tr.artist,
+        title: tr.title || "",
+        artist: tr.artist || "",
       });
-      if (tr.duration) params.set("duration", String(Math.round(tr.duration)));
+      if (tr.duration && tr.duration > 30) params.set("duration", String(Math.round(tr.duration)));
 
       const res = await fetch(`${API}/api/lyrics?${params}`);
       const data = await res.json();
