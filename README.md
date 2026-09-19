@@ -1,5 +1,8 @@
 # Line Grid — synced lyric player + YouTube search
 
+## Have a look as it runs on a railway server as well 
+https://line-grid-production-931c.up.railway.app/
+
 ## Quick start
 
 ```bash
